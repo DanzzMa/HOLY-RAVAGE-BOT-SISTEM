@@ -1,0 +1,854 @@
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Bot, 
+  Settings, 
+  Shield, 
+  MessageSquare, 
+  UserPlus, 
+  ChevronRight, 
+  ExternalLink,
+  LogOut,
+  LayoutDashboard,
+  Save,
+  CheckCircle2,
+  Menu,
+  X,
+  Trophy,
+  ShieldAlert
+} from 'lucide-react';
+import axios from 'axios';
+import { cn } from './lib/utils';
+
+interface User {
+  id: string;
+  username: string;
+}
+
+interface Guild {
+  id: string;
+  name: string;
+  icon: string;
+  botIn: boolean;
+}
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [guilds, setGuilds] = useState<Guild[]>([]);
+  const [selectedGuild, setSelectedGuild] = useState<any>(null);
+  const [settings, setSettings] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [ddRoles, setDdRoles] = useState<{ id: string, name: string, label: string }[]>([]);
+  const [ddChannel, setDdChannel] = useState("");
+  const [ddTitle, setDdTitle] = useState("");
+  const [ddDesc, setDdDesc] = useState("Please select your roles from the menu below.");
+  const [ddImage, setDdImage] = useState("");
+  const [leaderboard, setLeaderboard] = useState<{ user_id: string, xp: number, level: number }[]>([]);
+
+  useEffect(() => {
+    fetchUser();
+
+    // Listen for OAuth success message from popup
+    const handleMessage = (event: MessageEvent) => {
+      const origin = event.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
+        return;
+      }
+      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
+        fetchUser();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ text, type });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
+  const fetchUser = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get('/api/me');
+      setUser(res.data);
+      setTimeout(fetchGuilds, 500);
+    } catch (err) {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      setLoading(true);
+      await axios.get('/api/auth/logout');
+      setUser(null);
+      setGuilds([]);
+      setSelectedGuild(null);
+      showNotification('Logged out successfully');
+    } catch (err) {
+      console.error('Logout failed:', err);
+      showNotification('Logout failed', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    try {
+      const response = await axios.get('/api/auth/login');
+      const { url } = response.data;
+      
+      const width = 500;
+      const height = 750;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      
+      const authWindow = window.open(
+        url,
+        'discord_oauth',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+
+      if (!authWindow) {
+        alert('Please allow popups to login with Discord.');
+      }
+    } catch (err) {
+      console.error('Failed to initiate login:', err);
+    }
+  };
+
+  const handleLocalLogin = async () => {
+    try {
+      setLoading(true);
+      await axios.post('/api/auth/local');
+      await fetchUser();
+      showNotification('Logged in as local admin');
+    } catch (err) {
+      console.error('Local login failed:', err);
+      showNotification('Local login failed', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchGuilds = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get('/api/guilds');
+      if (Array.isArray(res.data)) {
+        setGuilds(res.data);
+      } else {
+        setGuilds([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch guilds:', err);
+      setGuilds([]);
+      showNotification('Failed to sync servers', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectGuild = async (id: string) => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`/api/guilds/${id}`);
+      setSelectedGuild(res.data);
+      setSettings(res.data.guildData);
+      
+      // Fetch leaderboard
+      const lbRes = await axios.get(`/api/guilds/${id}/leaderboard`);
+      setLeaderboard(lbRes.data);
+    } catch (err: any) {
+      console.error('Select guild error:', err);
+      const errorMsg = err.response?.data?.error || 'Failed to load server data';
+      showNotification(errorMsg, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    if (!selectedGuild) return;
+    setSaving(true);
+    try {
+      await axios.post(`/api/guilds/${selectedGuild.guildData.id}`, settings);
+      showNotification('Settings saved successfully!');
+    } catch (err: any) {
+      console.error('Save settings error:', err);
+      const errorMsg = err.response?.data?.error || 'Failed to save settings. Please try again.';
+      showNotification(errorMsg, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-zinc-950">
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+          className="h-12 w-12 border-4 border-discord-blurple border-t-transparent rounded-full"
+        />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LandingPage onLogin={handleLogin} onLocalLogin={handleLocalLogin} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-950 flex flex-col md:flex-row">
+      {/* Sidebar */}
+      <aside className="w-full md:w-64 bg-zinc-900 border-r border-zinc-800 p-6 flex flex-col gap-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-discord-blurple rounded-xl">
+            <Bot className="h-6 w-6 text-white" />
+          </div>
+          <h1 className="text-xl font-bold tracking-tight">HOLY RAVAGE</h1>
+        </div>
+
+        <nav className="flex flex-col gap-2">
+          <button 
+            onClick={() => { setSelectedGuild(null); fetchGuilds(); }}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-lg transition-all",
+              !selectedGuild ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            )}
+          >
+            <LayoutDashboard className="h-5 w-5" />
+            Dashboard
+          </button>
+          
+          <div className="mt-4 text-xs font-semibold text-zinc-500 uppercase tracking-widest px-4">
+            Your Servers
+          </div>
+          
+          <div className="flex flex-col gap-1 overflow-y-auto max-h-[50vh]">
+            {guilds.map((guild) => (
+              <button
+                key={guild.id}
+                onClick={() => selectGuild(guild.id)}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-2 rounded-lg transition-all text-left",
+                  selectedGuild?.guildData.id === guild.id ? "bg-discord-blurple/10 text-discord-blurple" : "text-zinc-400 hover:bg-zinc-800/50"
+                )}
+              >
+                {guild.icon ? (
+                  <img src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`} className="h-6 w-6 rounded-full" alt="" />
+                ) : (
+                  <div className="h-6 w-6 bg-zinc-800 rounded-full flex items-center justify-center text-[10px]">
+                    {guild.name.charAt(0)}
+                  </div>
+                )}
+                <span className="truncate flex-1">{guild.name}</span>
+                {!guild.botIn && <span className="text-[8px] bg-zinc-800 py-0.5 px-2 rounded-full">Invite</span>}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <div className="mt-auto space-y-4">
+          <AnimatePresence>
+            {notification && (
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className={cn(
+                  "mx-4 px-4 py-2 rounded-lg text-xs font-medium border",
+                  notification.type === 'success' 
+                    ? "bg-green-500/10 border-green-500/20 text-green-500" 
+                    : "bg-red-500/10 border-red-500/20 text-red-500"
+                )}
+              >
+                {notification.text}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          <div className="pt-6 border-t border-zinc-800">
+            <div className="flex items-center gap-3 px-4 py-2">
+            <div className="flex-1">
+              <p className="text-sm font-medium">{user.username}</p>
+              <p className="text-xs text-zinc-500">Administrator</p>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="text-zinc-500 hover:text-red-400 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-6 md:p-12 overflow-y-auto">
+        <AnimatePresence mode="wait">
+          {!selectedGuild ? (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="max-w-4xl mx-auto"
+            >
+              <h2 className="text-3xl font-bold mb-2">Welcome back, {user.username}!</h2>
+              <p className="text-zinc-400 mb-12">Select a server from the sidebar to start configuring HOLY RAVAGE.</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-900/50">
+                  <UserPlus className="h-8 w-8 text-discord-blurple mb-4" />
+                  <h3 className="text-xl font-bold mb-2">Welcome System</h3>
+                  <p className="text-zinc-400 text-sm leading-relaxed">
+                    Automate your server greetings and role assignments for new members instantly.
+                  </p>
+                </div>
+                <div className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-900/50">
+                  <Shield className="h-8 w-8 text-red-500 mb-4" />
+                  <h3 className="text-xl font-bold mb-2">Moderation</h3>
+                  <p className="text-zinc-400 text-sm leading-relaxed">
+                    Protect your community with advanced moderation tools and audit logging.
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key={selectedGuild.guildData.id}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="max-w-4xl mx-auto"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h2 className="text-3xl font-bold">{selectedGuild.guildData.name}</h2>
+                  <p className="text-zinc-400">Configure your bot instance</p>
+                </div>
+                <button 
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="bg-discord-blurple hover:bg-indigo-600 px-6 py-2 rounded-xl font-semibold flex items-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {saving ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="h-4 w-4 border-2 border-white border-t-transparent rounded-full" /> : <Save className="h-4 w-4" />}
+                  Save Changes
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                {/* General */}
+                <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Settings className="h-5 w-5 text-zinc-400" />
+                    <h3 className="text-xl font-bold">General Settings</h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Command Prefix</label>
+                      <input 
+                        type="text" 
+                        value={settings.prefix}
+                        onChange={(e) => setSettings({...settings, prefix: e.target.value})}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50 transition-all"
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                {/* Welcome */}
+                <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <UserPlus className="h-5 w-5 text-zinc-400" />
+                      <h3 className="text-xl font-bold">Welcome Messages</h3>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={settings.welcome_enabled === 1}
+                        onChange={(e) => setSettings({...settings, welcome_enabled: e.target.checked ? 1 : 0})}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-discord-blurple"></div>
+                    </label>
+                  </div>
+                  
+                  <div className={cn("space-y-6 transition-all", settings.welcome_enabled !== 1 && "opacity-50 pointer-events-none")}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Channel</label>
+                        <select 
+                          value={settings.welcome_channel_id || ''}
+                          onChange={(e) => setSettings({...settings, welcome_channel_id: e.target.value})}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        >
+                          <option value="">Select a channel</option>
+                          {selectedGuild.channels.map((c: any) => (
+                            <option key={c.id} value={c.id}>#{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Auto Role</label>
+                        <select 
+                          value={settings.auto_role_id || ''}
+                          onChange={(e) => setSettings({...settings, auto_role_id: e.target.value, auto_role_enabled: e.target.value ? 1 : 0})}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        >
+                          <option value="">No Auto Role</option>
+                          {selectedGuild.roles.map((r: any) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Message Template</label>
+                      <textarea 
+                        rows={3}
+                        value={settings.welcome_message}
+                        onChange={(e) => setSettings({...settings, welcome_message: e.target.value})}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        placeholder="Welcome {user} to {server}!"
+                      />
+                      <p className="text-[10px] text-zinc-500 mt-2 px-1">Use {'{user}'} for mention, {'{server}'} for server name, and {'{tag}'} for user tag.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Title</label>
+                        <input 
+                          type="text" 
+                          value={settings.welcome_embed_title || ''}
+                          onChange={(e) => setSettings({...settings, welcome_embed_title: e.target.value})}
+                          placeholder="Welcome!"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Color</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="color" 
+                            value={settings.welcome_embed_color || '#5865F2'}
+                            onChange={(e) => setSettings({...settings, welcome_embed_color: e.target.value})}
+                            className="h-10 w-10 bg-zinc-950 border border-zinc-800 rounded-lg p-1"
+                          />
+                          <input 
+                            type="text" 
+                            value={settings.welcome_embed_color || ''}
+                            onChange={(e) => setSettings({...settings, welcome_embed_color: e.target.value})}
+                            placeholder="#5865F2"
+                            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Welcome Image URL (Background)</label>
+                      <input 
+                        type="url" 
+                        value={settings.welcome_image_url || ''}
+                        onChange={(e) => setSettings({...settings, welcome_image_url: e.target.value})}
+                        placeholder="https://example.com/welcome.png"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                      />
+                      {settings.welcome_image_url && (
+                        <div className="mt-3 rounded-xl overflow-hidden border border-zinc-800 max-h-32">
+                          <img src={settings.welcome_image_url} alt="Preview" className="w-full h-full object-cover opacity-50" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Moderation */}
+                <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Shield className="h-5 w-5 text-zinc-400" />
+                    <h3 className="text-xl font-bold">Moderation Settings</h3>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Audit Log Channel</label>
+                        <select 
+                          value={settings.mod_log_channel_id || ''}
+                          onChange={(e) => setSettings({...settings, mod_log_channel_id: e.target.value})}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        >
+                          <option value="">No Logging</option>
+                          {selectedGuild.channels.map((c: any) => (
+                            <option key={c.id} value={c.id}>#{c.name}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-zinc-500 mt-2 px-1">Channel where moderation actions (ban, kick, mute) are logged.</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Mute Role</label>
+                        <select 
+                          value={settings.mute_role_id || ''}
+                          onChange={(e) => setSettings({...settings, mute_role_id: e.target.value})}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        >
+                          <option value="">No Mute Role</option>
+                          {selectedGuild.roles.map((r: any) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                        <p className="text-[10px] text-zinc-500 mt-2 px-1">Role added/removed when using {settings.prefix}mute.</p>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl">
+                      <h4 className="text-sm font-bold mb-2">Available Mod Commands</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                        <div className="flex flex-col gap-1">
+                          <code className="text-discord-blurple font-mono">{settings.prefix}ban @user [reason]</code>
+                          <span className="text-zinc-500">Bans a member permanently.</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <code className="text-discord-blurple font-mono">{settings.prefix}kick @user [reason]</code>
+                          <span className="text-zinc-500">Kicks a member from the server.</span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <code className="text-discord-blurple font-mono">{settings.prefix}mute @user [reason]</code>
+                          <span className="text-zinc-500">Toggles the mute role for a user.</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Leveling & AutoMod */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <Trophy className="h-5 w-5 text-zinc-400" />
+                        <h3 className="text-xl font-bold">Leveling System</h3>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="sr-only peer"
+                          checked={settings.leveling_enabled === 1}
+                          onChange={(e) => setSettings({...settings, leveling_enabled: e.target.checked ? 1 : 0})}
+                        />
+                        <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-discord-blurple"></div>
+                      </label>
+                    </div>
+                    <p className="text-sm text-zinc-400 mb-6">Users earn XP by chatting. Unlocks commands: <code className="text-discord-blurple">{settings.prefix}rank</code>, <code className="text-discord-blurple">{settings.prefix}lb</code>.</p>
+                    
+                    {settings.leveling_enabled === 1 && (
+                      <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-sm font-bold">Current Leaderboard</h4>
+                          <button className="text-xs text-discord-blurple hover:underline">View All</button>
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-3 text-xs text-zinc-500 border-b border-zinc-900 pb-2">
+                            <span className="w-6">#</span>
+                            <span className="flex-1">User ID</span>
+                            <span className="w-12 text-right">Lvl</span>
+                            <span className="w-16 text-right">XP</span>
+                          </div>
+                          {leaderboard.length > 0 ? (
+                            leaderboard.map((u, i) => (
+                              <div key={u.user_id} className="flex items-center gap-3 text-xs">
+                                <span className={cn(
+                                  "w-6 font-bold",
+                                  i === 0 ? "text-yellow-500" : i === 1 ? "text-zinc-300" : i === 2 ? "text-amber-600" : "text-zinc-500"
+                                )}>{i + 1}</span>
+                                <span className="flex-1 font-mono text-zinc-400 truncate">{u.user_id}</span>
+                                <span className="w-12 text-right text-zinc-300">{u.level}</span>
+                                <span className="w-16 text-right text-discord-blurple font-bold">{u.xp}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-center py-4 text-zinc-600 text-xs italic">
+                              Leaderboard data will appear once users start chatting.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <ShieldAlert className="h-5 w-5 text-zinc-400" />
+                        <h3 className="text-xl font-bold">Auto-Mod</h3>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="sr-only peer"
+                          checked={settings.automod_enabled === 1}
+                          onChange={(e) => setSettings({...settings, automod_enabled: e.target.checked ? 1 : 0})}
+                        />
+                        <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-discord-blurple"></div>
+                      </label>
+                    </div>
+                    <p className="text-sm text-zinc-400 mb-6">Automatically removes messages with offensive language and logs them to the audit channel.</p>
+                    <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl">
+                      <h4 className="text-sm font-bold mb-2">Filtered Phrases</h4>
+                      <p className="text-xs text-zinc-500">Currently filtering common offensive Indonesian words. Custom word lists coming soon.</p>
+                    </div>
+                  </section>
+                </div>
+
+                {/* Dropdown Roles */}
+                <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                  <div className="flex items-center gap-3 mb-6">
+                    <Menu className="h-5 w-5 text-zinc-400" />
+                    <h3 className="text-xl font-bold">Dropdown Roles</h3>
+                  </div>
+                  
+                  <p className="text-sm text-zinc-400 mb-6">Create a message in a channel where users can pick their roles from a dropdown menu.</p>
+                  
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Target Channel</label>
+                        <select 
+                          value={ddChannel}
+                          onChange={(e) => setDdChannel(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        >
+                          <option value="">Select a channel</option>
+                          {selectedGuild.channels.map((c: any) => (
+                            <option key={c.id} value={c.id}>#{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Title</label>
+                        <input 
+                          type="text" 
+                          placeholder="Get Your Roles" 
+                          value={ddTitle}
+                          onChange={(e) => setDdTitle(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Description</label>
+                      <textarea 
+                        rows={2}
+                        value={ddDesc}
+                        onChange={(e) => setDdDesc(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Image URL</label>
+                      <input 
+                        type="url" 
+                        value={ddImage}
+                        onChange={(e) => setDdImage(e.target.value)}
+                        placeholder="https://example.com/image.png"
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="block text-sm font-medium text-zinc-400 px-1">Selected Roles ({ddRoles.length}/25)</label>
+                      <div className="space-y-2">
+                        {ddRoles.map((role, idx) => (
+                          <div key={role.id} className="flex items-center gap-3 p-3 bg-zinc-950 border border-zinc-800 rounded-xl">
+                            <span className="text-zinc-500 font-mono text-xs w-4">{idx + 1}.</span>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">{role.name}</p>
+                              <input 
+                                type="text"
+                                value={role.label}
+                                onChange={(e) => {
+                                  const newRoles = [...ddRoles];
+                                  newRoles[idx].label = e.target.value;
+                                  setDdRoles(newRoles);
+                                }}
+                                className="bg-transparent text-xs text-zinc-400 border-none p-0 focus:ring-0 w-full"
+                                placeholder="Button label..."
+                              />
+                            </div>
+                            <button 
+                              onClick={() => setDdRoles(ddRoles.filter(r => r.id !== role.id))}
+                              className="p-2 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 rounded-lg transition-colors"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <select 
+                          id="role-adder"
+                          className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
+                        >
+                          <option value="">Add a role...</option>
+                          {selectedGuild.roles
+                            .filter((r: any) => !ddRoles.some(dr => dr.id === r.id) && r.name !== "@everyone")
+                            .map((r: any) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                        </select>
+                        <button 
+                          onClick={() => {
+                            const select = document.getElementById('role-adder') as HTMLSelectElement;
+                            const roleId = select.value;
+                            if (!roleId) return;
+                            const role = selectedGuild.roles.find((r: any) => r.id === roleId);
+                            setDdRoles([...ddRoles, { id: role.id, name: role.name, label: role.name }]);
+                            select.value = "";
+                          }}
+                          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl text-sm font-medium transition-all"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={async () => {
+                        if (!ddChannel) return showNotification('Please select a target channel', 'error');
+                        if (ddRoles.length === 0) return showNotification('Please add at least one role', 'error');
+                        
+                        setSaving(true);
+                        try {
+                          await axios.post(`/api/guilds/${selectedGuild.guildData.id}/dropdowns`, {
+                            channel_id: ddChannel,
+                            title: ddTitle || 'Role Selection',
+                            description: ddDesc,
+                            image_url: ddImage,
+                            roles: JSON.stringify(ddRoles.map(r => ({ label: r.label, value: r.id })))
+                          });
+                          showNotification('Dropdown roles created in Discord!');
+                          setDdRoles([]);
+                        } catch (err: any) {
+                          console.error('Create dropdown error:', err);
+                          const errorMsg = err.response?.data?.error || 'Failed to create dropdown message. Check permissions.';
+                          showNotification(errorMsg, 'error');
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      disabled={saving || !ddChannel || ddRoles.length === 0}
+                      className="w-full py-4 bg-discord-blurple hover:bg-indigo-600 disabled:opacity-50 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2"
+                    >
+                      {saving ? (
+                        <>
+                          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                          Creating...
+                        </>
+                      ) : 'Create Dropdown Message'}
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+function LandingPage({ onLogin, onLocalLogin }: { onLogin: () => void, onLocalLogin: () => void }) {
+  return (
+    <div className="relative min-h-screen bg-zinc-950 overflow-hidden flex flex-col items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-discord-blurple/20 via-zinc-950 to-zinc-950">
+      <div className="absolute top-0 left-0 w-full h-full opacity-30 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-discord-blurple blur-[120px] rounded-full animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-900 blur-[120px] rounded-full animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, ease: "easeOut" }}
+        className="relative z-10 text-center max-w-2xl"
+      >
+        <div className="inline-flex p-3 bg-discord-blurple rounded-3xl mb-8 shadow-[0_0_40px_-10px_rgba(88,101,242,0.5)]">
+          <Bot className="h-10 w-10 text-white" />
+        </div>
+        <h1 className="text-6xl md:text-8xl font-black mb-6 tracking-tight bg-clip-text text-transparent bg-gradient-to-b from-white to-zinc-500">
+          NEXUS
+        </h1>
+        <p className="text-lg md:text-xl text-zinc-400 mb-10 leading-relaxed font-light">
+          The all-in-one Discord powerhouse. Welcome systems, advanced moderation, 
+          and role management—all controlled from one beautiful interface.
+        </p>
+        
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          <button 
+            onClick={onLogin}
+            className="w-full sm:w-auto px-8 py-4 bg-discord-blurple hover:bg-indigo-600 text-white font-bold rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all hover:scale-105 active:scale-95"
+          >
+            Login with Discord
+            <ChevronRight className="h-5 w-5" />
+          </button>
+          <button 
+            onClick={onLocalLogin}
+            className="w-full sm:w-auto px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-bold rounded-2xl border border-white/10 flex items-center justify-center gap-3 transition-all backdrop-blur-sm"
+          >
+            Login Local
+            <LayoutDashboard className="h-5 w-5 opacity-50" />
+          </button>
+        </div>
+        
+        <div className="mt-6">
+          <button 
+            onClick={() => {
+              const clientId = process.env.DISCORD_CLIENT_ID || '';
+              if (!clientId) return alert('Silakan masukkan DISCORD_CLIENT_ID di Secrets terlebih dahulu.');
+              window.open(`https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=8&scope=bot%20applications.commands`, '_blank');
+            }}
+            className="text-zinc-500 hover:text-zinc-300 text-sm flex items-center justify-center gap-2 transition-all mx-auto"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Invite Bot to Server
+          </button>
+        </div>
+      </motion.div>
+
+      <div className="mt-24 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl w-full">
+        {[
+          { icon: <MessageSquare className="text-sky-400" />, title: "Custom Commands", desc: "Create flexible prefixes and response templates." },
+          { icon: <Shield className="text-red-400" />, title: "Auto Mod", desc: "Keep your community safe with rule enforcement." },
+          { icon: <UserPlus className="text-emerald-400" />, title: "Live Dashboard", desc: "Instant updates without touching a line of code." }
+        ].map((feat, i) => (
+          <motion.div 
+            key={feat.title}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 * i + 0.5 }}
+            className="p-6 bg-white/5 rounded-3xl border border-white/10 backdrop-blur-sm"
+          >
+            <div className="p-3 bg-white/5 rounded-2xl w-fit mb-4">
+              {React.cloneElement(feat.icon as React.ReactElement, { className: "h-6 w-6" })}
+            </div>
+            <h3 className="font-bold mb-2">{feat.title}</h3>
+            <p className="text-sm text-zinc-500 leading-relaxed">{feat.desc}</p>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+}

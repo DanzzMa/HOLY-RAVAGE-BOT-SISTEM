@@ -143,7 +143,20 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   if (command === 'ping') {
-    message.reply('Pong!');
+    const msg = await message.reply('Pinging...');
+    const latency = msg.createdTimestamp - message.createdTimestamp;
+    const apiPing = Math.round(client.ws.ping);
+    
+    const embed = new EmbedBuilder()
+      .setTitle('🏓 Pong!')
+      .addFields(
+        { name: 'Bot Latency', value: `${latency}ms`, inline: true },
+        { name: 'API Latency', value: `${apiPing}ms`, inline: true }
+      )
+      .setColor('#5865F2')
+      .setTimestamp();
+
+    await msg.edit({ content: null, embeds: [embed] });
   }
 
   if (command === 'ban' || command === 'kick') {

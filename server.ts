@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'holy_ravage_default_secret';
 
 async function bootstrap() {
@@ -91,6 +91,17 @@ async function bootstrap() {
     } catch (err) {
       res.status(401).json({ error: 'Unauthorized' });
     }
+  });
+  
+  app.get('/api/bot/status', (req, res) => {
+    res.json({
+      status: client.isReady() ? 'online' : 'offline',
+      ping: client.ws.ping,
+      guilds: client.guilds.cache.size,
+      users: client.guilds.cache.reduce((acc, guild) => acc + guild.memberCount, 0),
+      uptime: client.uptime,
+      inviteUrl: `https://discord.com/api/oauth2/authorize?client_id=${client.user?.id}&permissions=8&scope=bot%20applications.commands`,
+    });
   });
 
   app.get('/api/auth/logout', (req, res) => {

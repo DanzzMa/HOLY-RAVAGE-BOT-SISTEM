@@ -15,7 +15,9 @@ import {
   Menu,
   X,
   Trophy,
-  ShieldAlert
+  ShieldAlert,
+  RefreshCw,
+  Activity
 } from 'lucide-react';
 import axios from 'axios';
 import { cn } from './lib/utils';
@@ -46,9 +48,13 @@ export default function App() {
   const [ddDesc, setDdDesc] = useState("Please select your roles from the menu below.");
   const [ddImage, setDdImage] = useState("");
   const [leaderboard, setLeaderboard] = useState<{ user_id: string, xp: number, level: number }[]>([]);
+  const [botStatus, setBotStatus] = useState<any>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
 
   useEffect(() => {
     fetchUser();
+    fetchBotStatus();
+    const statusInterval = setInterval(fetchBotStatus, 30000);
 
     // Listen for OAuth success message from popup
     const handleMessage = (event: MessageEvent) => {
@@ -61,8 +67,23 @@ export default function App() {
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearInterval(statusInterval);
+    };
   }, []);
+
+  const fetchBotStatus = async () => {
+    setStatusLoading(true);
+    try {
+      const res = await axios.get('/api/bot/status');
+      setBotStatus(res.data);
+    } catch (err) {
+      console.error('Failed to fetch bot status:', err);
+    } finally {
+      setTimeout(() => setStatusLoading(false), 500);
+    }
+  };
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setNotification({ text, type });
@@ -255,6 +276,60 @@ export default function App() {
           </div>
         </nav>
 
+        {botStatus && (
+          <div className="px-4 py-3 bg-zinc-950/50 border border-zinc-800 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">System Status</span>
+                <button 
+                  onClick={fetchBotStatus}
+                  disabled={statusLoading}
+                  className="hover:text-zinc-300 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("h-2.5 w-2.5 text-zinc-500", statusLoading && "animate-spin")} />
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  botStatus.status === 'online' ? "bg-green-500 animate-pulse" : "bg-red-500"
+                )} />
+                <span className={cn(
+                  "text-[10px] font-bold capitalize",
+                  botStatus.status === 'online' ? "text-green-500" : "text-red-500"
+                )}>
+                  {botStatus.status}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-2.5 bg-zinc-900 rounded-xl border border-zinc-800/50 group relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-1 opacity-20">
+                  <Activity className="h-3 w-3" />
+                </div>
+                <p className="text-[10px] text-zinc-500 mb-0.5">Ping</p>
+                <div className="flex items-baseline gap-1">
+                  <p className="text-xs font-bold text-zinc-200">{botStatus.ping}ms</p>
+                  <div className={cn(
+                    "h-1 w-1 rounded-full",
+                    botStatus.ping < 50 ? "bg-green-500" : botStatus.ping < 150 ? "bg-yellow-500" : "bg-red-500"
+                  )} />
+                </div>
+              </div>
+              <div className="p-2.5 bg-zinc-900 rounded-xl border border-zinc-800/50">
+                <p className="text-[10px] text-zinc-500 mb-0.5">Shards</p>
+                <p className="text-xs font-bold text-zinc-200">1 / 1</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] text-zinc-500">Uptime</span>
+              <span className="text-[10px] font-mono text-zinc-400">
+                {botStatus.uptime ? `${Math.floor(botStatus.uptime / 3600000)}h ${Math.floor((botStatus.uptime % 3600000) / 60000)}m` : 'N/A'}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="mt-auto space-y-4">
           <AnimatePresence>
             {notification && (
@@ -283,10 +358,26 @@ export default function App() {
             <button 
               onClick={handleLogout}
               className="text-zinc-500 hover:text-red-400 transition-colors"
+              title="Logout"
             >
               <LogOut className="h-4 w-4" />
             </button>
           </div>
+
+          {botStatus?.inviteUrl && (
+            <div className="px-4 pb-4">
+              <a 
+                href={botStatus.inviteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-discord-blurple/10 hover:bg-discord-blurple/20 text-discord-blurple rounded-xl text-xs font-bold transition-all border border-discord-blurple/20 group w-full"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                Invite Bot
+                <ExternalLink className="h-3 w-3 opacity-50 group-hover:opacity-100 transition-opacity" />
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </aside>

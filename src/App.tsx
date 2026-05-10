@@ -70,6 +70,13 @@ export default function App() {
   const [ceFields, setCeFields] = useState<{ name: string, value: string, inline: boolean }[]>([]);
   const [ceTimestamp, setCeTimestamp] = useState(false);
 
+  // Message Console States
+  const [messages, setMessages] = useState<any[]>([]);
+  const [mcChannel, setMcChannel] = useState("");
+  const [mcReply, setMcReply] = useState("");
+  const [mcReplyingTo, setMcReplyingTo] = useState<any>(null);
+  const [fetchingMessages, setFetchingMessages] = useState(false);
+
   useEffect(() => {
     fetchUser();
     fetchBotStatus();
@@ -91,6 +98,48 @@ export default function App() {
       clearInterval(statusInterval);
     };
   }, []);
+
+  useEffect(() => {
+    if (mcChannel && selectedGuild) {
+      fetchMessages();
+      const interval = setInterval(fetchMessages, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [mcChannel, selectedGuild?.guildData.id]);
+
+  const fetchMessages = async () => {
+    if (!selectedGuild || !mcChannel) return;
+    setFetchingMessages(true);
+    try {
+      const res = await axios.get(`/api/guilds/${selectedGuild.guildData.id}/channels/${mcChannel}/messages`);
+      setMessages(res.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setFetchingMessages(false);
+    }
+  };
+
+  const sendReply = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedGuild || !mcChannel || !mcReply) return;
+    setSaving(true);
+    try {
+      await axios.post(`/api/guilds/${selectedGuild.guildData.id}/channels/${mcChannel}/reply`, {
+        messageId: mcReplyingTo?.id,
+        content: mcReply
+      });
+      showNotification('Message sent!');
+      setMcReply("");
+      setMcReplyingTo(null);
+      fetchMessages();
+    } catch (err) {
+      console.error(err);
+      showNotification('Failed to send message', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const fetchBotStatus = async () => {
     setStatusLoading(true);
@@ -1408,6 +1457,114 @@ export default function App() {
                           </div>
                         </div>
                       </div>
+                    </section>
+
+                    {/* Message Console */}
+                    <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                          <MessageSquare className="h-5 w-5 text-zinc-400" />
+                          <h3 className="text-xl font-bold">Message Console</h3>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <select 
+                            value={mcChannel}
+                            onChange={(e) => setMcChannel(e.target.value)}
+                            className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 focus:outline-none text-xs"
+                          >
+                            <option value="">Select Channel</option>
+                            {selectedGuild.channels.map((c: any) => (
+                              <option key={c.id} value={c.id}>#{c.name}</option>
+                            ))}
+                          </select>
+                          <button 
+                            onClick={fetchMessages}
+                            disabled={fetchingMessages || !mcChannel}
+                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            <RefreshCw className={cn("h-4 w-4", fetchingMessages && "animate-spin")} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {!mcChannel ? (
+                        <div className="py-12 flex flex-col items-center justify-center text-zinc-600 border border-zinc-800 border-dashed rounded-2xl">
+                          <MessageSquare className="h-12 w-12 mb-4 opacity-20" />
+                          <p className="text-sm">Select a channel to view live messages and reply.</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col h-[500px]">
+                          <div className="flex-1 overflow-y-auto space-y-4 px-2 mb-4 scrollbar-thin scrollbar-thumb-zinc-800 hover:scrollbar-thumb-zinc-700">
+                            {messages.length === 0 && !fetchingMessages && (
+                              <div className="text-center py-20 text-zinc-500 italic text-sm">No recent messages found.</div>
+                            )}
+                            {[...messages].reverse().map((msg) => (
+                              <div key={msg.id} className="group relative flex gap-3 hover:bg-zinc-900/50 p-2 rounded-xl transition-all">
+                                <img src={msg.author.avatar} alt="" className="h-8 w-8 rounded-full flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-baseline gap-2">
+                                    <span className="font-bold text-sm text-zinc-200">{msg.author.username}</span>
+                                    <span className="text-[10px] text-zinc-500 font-mono">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                                  </div>
+                                  <p className="text-sm text-zinc-400 break-words">{msg.content}</p>
+                                  {msg.attachments.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {msg.attachments.map((a: any, i: number) => (
+                                        <a key={i} href={a.url} target="_blank" rel="noreferrer" className="text-[10px] text-discord-blurple hover:underline flex items-center gap-1">
+                                           📎 {a.name}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <button 
+                                  onClick={() => {
+                                    setMcReplyingTo(msg);
+                                    document.getElementById('mc-input')?.focus();
+                                  }}
+                                  className="opacity-0 group-hover:opacity-100 absolute top-2 right-2 p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-all"
+                                  title="Reply"
+                                >
+                                  <Send className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-auto space-y-2">
+                            {mcReplyingTo && (
+                              <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-800/50 rounded-t-lg border-x border-t border-zinc-800 text-[10px]">
+                                <span className="text-zinc-500">
+                                  Replying to <span className="font-bold text-zinc-300">@{mcReplyingTo.author.username}</span>
+                                </span>
+                                <button onClick={() => setMcReplyingTo(null)} className="text-zinc-500 hover:text-red-400">
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                            <form onSubmit={sendReply} className="relative">
+                              <input 
+                                id="mc-input"
+                                type="text"
+                                value={mcReply}
+                                onChange={(e) => setMcReply(e.target.value)}
+                                placeholder={mcReplyingTo ? `Reply to ${mcReplyingTo.author.username}...` : `Send a message to #${selectedGuild.channels.find((c: any) => c.id === mcChannel)?.name}...`}
+                                className={cn(
+                                  "w-full bg-zinc-950 border border-zinc-800 px-4 py-3 pr-12 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50 transition-all",
+                                  mcReplyingTo ? "rounded-b-xl" : "rounded-xl"
+                                )}
+                              />
+                              <button 
+                                type="submit"
+                                disabled={saving || !mcReply}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-discord-blurple hover:text-indigo-400 disabled:opacity-50 transition-colors"
+                              >
+                                <Send className="h-4 w-4" />
+                              </button>
+                            </form>
+                          </div>
+                        </div>
+                      )}
                     </section>
                   </div>
                 </motion.div>

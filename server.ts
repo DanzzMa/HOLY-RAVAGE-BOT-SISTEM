@@ -367,6 +367,58 @@ async function bootstrap() {
     }
   });
 
+  app.get('/api/guilds/:id/channels/:channelId/messages', async (req, res) => {
+    const { id, channelId } = req.params;
+    const guild = client.guilds.cache.get(id);
+    if (!guild) return res.status(404).json({ error: 'Bot not in guild' });
+
+    const channel: any = guild.channels.cache.get(channelId);
+    if (!channel || !channel.isTextBased()) return res.status(404).json({ error: 'Text channel not found' });
+
+    try {
+      const messages = await channel.messages.fetch({ limit: 50 });
+      res.json(messages.map((m: any) => ({
+        id: m.id,
+        content: m.content,
+        author: {
+          id: m.author.id,
+          username: m.author.username,
+          avatar: m.author.displayAvatarURL(),
+        },
+        timestamp: m.createdTimestamp,
+        attachments: m.attachments.map((a: any) => ({ url: a.url, name: a.name })),
+        embeds: m.embeds.map((e: any) => ({ title: e.title, description: e.description })),
+      })));
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to fetch messages' });
+    }
+  });
+
+  app.post('/api/guilds/:id/channels/:channelId/reply', async (req, res) => {
+    const { id, channelId } = req.params;
+    const { messageId, content } = req.body;
+
+    const guild = client.guilds.cache.get(id);
+    if (!guild) return res.status(404).json({ error: 'Bot not in guild' });
+
+    const channel: any = guild.channels.cache.get(channelId);
+    if (!channel || !channel.isTextBased()) return res.status(404).json({ error: 'Text channel not found' });
+
+    try {
+      if (messageId) {
+        const message = await channel.messages.fetch(messageId);
+        await message.reply(content);
+      } else {
+        await channel.send(content);
+      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to send reply' });
+    }
+  });
+
   // Vite setup
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

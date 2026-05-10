@@ -21,7 +21,20 @@ db.exec(`
     mute_role_id TEXT,
     automod_enabled INTEGER DEFAULT 0,
     leveling_enabled INTEGER DEFAULT 0,
-    prefix TEXT DEFAULT '!'
+    prefix TEXT DEFAULT '!',
+    leave_enabled INTEGER DEFAULT 0,
+    leave_channel_id TEXT,
+    leave_message TEXT DEFAULT '{user} has left the server.',
+    xp_per_message INTEGER DEFAULT 10
+  );
+
+  CREATE TABLE IF NOT EXISTS custom_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    command_name TEXT NOT NULL,
+    response TEXT NOT NULL,
+    is_embed INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS users (
@@ -55,7 +68,11 @@ const missingColumns = [
   { name: 'mod_log_channel_id', type: 'TEXT' },
   { name: 'mute_role_id', type: 'TEXT' },
   { name: 'automod_enabled', type: 'INTEGER DEFAULT 0' },
-  { name: 'leveling_enabled', type: 'INTEGER DEFAULT 0' }
+  { name: 'leveling_enabled', type: 'INTEGER DEFAULT 0' },
+  { name: 'leave_enabled', type: 'INTEGER DEFAULT 0' },
+  { name: 'leave_channel_id', type: 'TEXT' },
+  { name: 'leave_message', type: "TEXT DEFAULT '{user} has left the server.'" },
+  { name: 'xp_per_message', type: 'INTEGER DEFAULT 10' }
 ];
 
 for (const column of missingColumns) {

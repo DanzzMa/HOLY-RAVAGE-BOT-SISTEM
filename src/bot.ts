@@ -47,6 +47,28 @@ client.on(Events.GuildMemberAdd, async (member) => {
   }
 });
 
+client.on(Events.GuildMemberRemove, async (member) => {
+  const guildData: any = db.prepare('SELECT * FROM guilds WHERE id = ?').get(member.guild.id);
+  
+  if (guildData?.leave_enabled && guildData.leave_channel_id) {
+    const channel: any = member.guild.channels.cache.get(guildData.leave_channel_id);
+    if (channel) {
+      const msg = (guildData.leave_message || '{user} has left the server.')
+        .replace('{user}', `<@${member.id}>`)
+        .replace('{server}', member.guild.name)
+        .replace('{tag}', member.user.tag);
+      
+      const embed = new EmbedBuilder()
+        .setTitle('Goodbye!')
+        .setDescription(msg)
+        .setColor('#ED4245')
+        .setThumbnail(member.user.displayAvatarURL());
+      
+      channel.send({ embeds: [embed] }).catch(console.error);
+    }
+  }
+});
+
 async function logModAction(guild: any, action: string, target: any, moderator: any, reason: string) {
   const guildData: any = db.prepare('SELECT mod_log_channel_id FROM guilds WHERE id = ?').get(guild.id);
   if (guildData?.mod_log_channel_id) {
@@ -94,7 +116,7 @@ client.on(Events.MessageCreate, async (message) => {
         message.guild.id, message.author.id, 10, 0, now
       );
     } else if (now - user.last_xp_gain > 60000) { // 1 min cooldown
-      const xpGain = Math.floor(Math.random() * 10) + 10;
+      const xpGain = guildData.xp_per_message || 10;
       const newXp = user.xp + xpGain;
       const newLevel = Math.floor(0.1 * Math.sqrt(newXp));
       
@@ -104,6 +126,24 @@ client.on(Events.MessageCreate, async (message) => {
 
       if (newLevel > user.level) {
         message.channel.send(`GG <@${message.author.id}>! Kamu naik ke **Level ${newLevel}**! 🎉`);
+      }
+    }
+  }
+
+  // 3. Custom Commands
+  if (message.content.startsWith(prefix)) {
+    const cmdName = message.content.slice(prefix.length).trim().split(/ +/)[0]?.toLowerCase();
+    if (cmdName) {
+      const customCmd: any = db.prepare('SELECT * FROM custom_commands WHERE guild_id = ? AND command_name = ?').get(message.guild.id, cmdName);
+      if (customCmd) {
+        if (customCmd.is_embed) {
+          const embed = new EmbedBuilder()
+            .setDescription(customCmd.response)
+            .setColor('#5865F2');
+          return message.channel.send({ embeds: [embed] }).catch(console.error);
+        } else {
+          return message.channel.send(customCmd.response).catch(console.error);
+        }
       }
     }
   }

@@ -172,7 +172,15 @@ async function bootstrap() {
       id,
       name: guild.name,
       welcome_enabled: 0,
-      prefix: '!'
+      welcome_message: 'Welcome {user} to the server!',
+      welcome_embed_title: 'Welcome!',
+      welcome_embed_color: '#5865F2',
+      leave_enabled: 0,
+      leave_message: '{user} has left the server.',
+      prefix: '!',
+      automod_enabled: 0,
+      leveling_enabled: 0,
+      xp_per_message: 10
     };
 
     const channels = guild.channels.cache.filter((c: any) => c.type === 0).map((c: any) => ({ id: c.id, name: c.name }));
@@ -186,8 +194,8 @@ async function bootstrap() {
     const settings = req.body;
 
     db.prepare(`
-      INSERT INTO guilds (id, welcome_enabled, welcome_channel_id, welcome_message, welcome_image_url, welcome_embed_title, welcome_embed_color, auto_role_enabled, auto_role_id, mod_log_channel_id, mute_role_id, automod_enabled, leveling_enabled, prefix)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO guilds (id, welcome_enabled, welcome_channel_id, welcome_message, welcome_image_url, welcome_embed_title, welcome_embed_color, auto_role_enabled, auto_role_id, mod_log_channel_id, mute_role_id, automod_enabled, leveling_enabled, prefix, leave_enabled, leave_channel_id, leave_message, xp_per_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         welcome_enabled = excluded.welcome_enabled,
         welcome_channel_id = excluded.welcome_channel_id,
@@ -201,7 +209,11 @@ async function bootstrap() {
         mute_role_id = excluded.mute_role_id,
         automod_enabled = excluded.automod_enabled,
         leveling_enabled = excluded.leveling_enabled,
-        prefix = excluded.prefix
+        prefix = excluded.prefix,
+        leave_enabled = excluded.leave_enabled,
+        leave_channel_id = excluded.leave_channel_id,
+        leave_message = excluded.leave_message,
+        xp_per_message = excluded.xp_per_message
     `).run(
       id,
       settings.welcome_enabled ? 1 : 0,
@@ -216,7 +228,11 @@ async function bootstrap() {
       settings.mute_role_id,
       settings.automod_enabled ? 1 : 0,
       settings.leveling_enabled ? 1 : 0,
-      settings.prefix
+      settings.prefix,
+      settings.leave_enabled ? 1 : 0,
+      settings.leave_channel_id,
+      settings.leave_message,
+      settings.xp_per_message || 10
     );
 
     res.json({ success: true });
@@ -236,7 +252,7 @@ async function bootstrap() {
 
   app.post('/api/guilds/:id/embed', async (req, res) => {
     const { id } = req.params;
-    const { channel_id, title, description, color, image, thumbnail, footer } = req.body;
+    const { channel_id, title, description, color, image, thumbnail, footer, author, fields, timestamp } = req.body;
 
     const guild = client.guilds.cache.get(id);
     if (!guild) return res.status(404).json({ error: 'Bot not in guild' });
@@ -254,12 +270,48 @@ async function bootstrap() {
       if (image) embed.image = { url: image };
       if (thumbnail) embed.thumbnail = { url: thumbnail };
       if (footer) embed.footer = { text: footer };
+      if (author?.name) embed.author = { name: author.name, icon_url: author.icon, url: author.url };
+      if (fields?.length) embed.fields = fields.map((f: any) => ({ name: f.name, value: f.value, inline: !!f.inline }));
+      if (timestamp) embed.timestamp = new Date().toISOString();
 
       await channel.send({ embeds: [embed] });
       res.json({ success: true });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Failed to send embed' });
+    }
+  });
+
+  app.get('/api/guilds/:id/commands', async (req, res) => {
+    const { id } = req.params;
+    const commands = db.prepare('SELECT * FROM custom_commands WHERE guild_id = ?').all(id);
+    res.json(commands);
+  });
+
+  app.post('/api/guilds/:id/commands', async (req, res) => {
+    const { id } = req.params;
+    const { command_name, response, is_embed } = req.body;
+
+    try {
+      db.prepare(`
+        INSERT INTO custom_commands (guild_id, command_name, response, is_embed)
+        VALUES (?, ?, ?, ?)
+      `).run(id, command_name.toLowerCase(), response, is_embed ? 1 : 0);
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to add command' });
+    }
+  });
+
+  app.delete('/api/guilds/:id/commands/:commandId', async (req, res) => {
+    const { id, commandId } = req.params;
+    try {
+      db.prepare('DELETE FROM custom_commands WHERE id = ? AND guild_id = ?').run(commandId, id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to delete command' });
     }
   });
 

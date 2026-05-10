@@ -18,7 +18,11 @@ import {
   ShieldAlert,
   RefreshCw,
   Activity,
-  Send
+  Send,
+  Plus,
+  Trash2,
+  User,
+  Clock
 } from 'lucide-react';
 import axios from 'axios';
 import { cn } from './lib/utils';
@@ -51,6 +55,8 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState<{ user_id: string, xp: number, level: number }[]>([]);
   const [botStatus, setBotStatus] = useState<any>(null);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [customCommands, setCustomCommands] = useState<any[]>([]);
+  const [newCommand, setNewCommand] = useState({ name: '', response: '', is_embed: false });
 
   // Custom Embed States
   const [ceChannel, setCeChannel] = useState("");
@@ -60,6 +66,9 @@ export default function App() {
   const [ceImage, setCeImage] = useState("");
   const [ceThumb, setCeThumb] = useState("");
   const [ceFooter, setCeFooter] = useState("");
+  const [ceAuthor, setCeAuthor] = useState({ name: "", icon: "", url: "" });
+  const [ceFields, setCeFields] = useState<{ name: string, value: string, inline: boolean }[]>([]);
+  const [ceTimestamp, setCeTimestamp] = useState(false);
 
   useEffect(() => {
     fetchUser();
@@ -195,6 +204,10 @@ export default function App() {
       // Fetch leaderboard
       const lbRes = await axios.get(`/api/guilds/${id}/leaderboard`);
       setLeaderboard(lbRes.data);
+
+      // Fetch custom commands
+      const cmdRes = await axios.get(`/api/guilds/${id}/commands`);
+      setCustomCommands(cmdRes.data);
     } catch (err: any) {
       console.error('Select guild error:', err);
       const errorMsg = err.response?.data?.error || 'Failed to load server data';
@@ -219,9 +232,24 @@ export default function App() {
     }
   };
 
+  const addField = () => {
+    if (ceFields.length >= 25) return;
+    setCeFields([...ceFields, { name: "", value: "", inline: false }]);
+  };
+
+  const removeField = (index: number) => {
+    setCeFields(ceFields.filter((_, i) => i !== index));
+  };
+
+  const updateField = (index: number, key: string, value: any) => {
+    const newFields = [...ceFields];
+    (newFields[index] as any)[key] = value;
+    setCeFields(newFields);
+  };
+
   const sendCustomEmbed = async () => {
-    if (!selectedGuild || !ceChannel || (!ceTitle && !ceDesc)) {
-       showNotification('Please select a channel and provide a title or description', 'error');
+    if (!selectedGuild || !ceChannel || (!ceTitle && !ceDesc && ceFields.length === 0)) {
+       showNotification('Please provide a channel and some content (Title, Desc, or Fields)', 'error');
        return;
     }
     setSaving(true);
@@ -233,7 +261,10 @@ export default function App() {
         color: ceColor,
         image: ceImage,
         thumbnail: ceThumb,
-        footer: ceFooter
+        footer: ceFooter,
+        author: ceAuthor,
+        fields: ceFields.filter(f => f.name && f.value),
+        timestamp: ceTimestamp
       });
       showNotification('Embed sent successfully!');
       setCeTitle("");
@@ -241,9 +272,48 @@ export default function App() {
       setCeImage("");
       setCeThumb("");
       setCeFooter("");
+      setCeAuthor({ name: "", icon: "", url: "" });
+      setCeFields([]);
+      setCeTimestamp(false);
     } catch (err: any) {
       console.error('Send embed error:', err);
       showNotification(err.response?.data?.error || 'Failed to send embed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addCustomCommand = async () => {
+    if (!selectedGuild || !newCommand.name || !newCommand.response) return;
+    setSaving(true);
+    try {
+      await axios.post(`/api/guilds/${selectedGuild.guildData.id}/commands`, {
+        command_name: newCommand.name,
+        response: newCommand.response,
+        is_embed: newCommand.is_embed
+      });
+      const res = await axios.get(`/api/guilds/${selectedGuild.guildData.id}/commands`);
+      setCustomCommands(res.data);
+      setNewCommand({ name: '', response: '', is_embed: false });
+      showNotification('Command added successfully!');
+    } catch (err) {
+      console.error(err);
+      showNotification('Failed to add command', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteCustomCommand = async (commandId: number) => {
+    if (!selectedGuild) return;
+    setSaving(true);
+    try {
+      await axios.delete(`/api/guilds/${selectedGuild.guildData.id}/commands/${commandId}`);
+      setCustomCommands(customCommands.filter(c => c.id !== commandId));
+      showNotification('Command deleted');
+    } catch (err) {
+      console.error(err);
+      showNotification('Failed to delete command', 'error');
     } finally {
       setSaving(false);
     }
@@ -604,6 +674,52 @@ export default function App() {
                   </div>
                 </section>
 
+                {/* Leave Messages */}
+                <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <LogOut className="h-5 w-5 text-zinc-400" />
+                      <h3 className="text-xl font-bold">Leave Messages</h3>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={settings.leave_enabled === 1}
+                        onChange={(e) => setSettings({...settings, leave_enabled: e.target.checked ? 1 : 0})}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-discord-blurple"></div>
+                    </label>
+                  </div>
+                  
+                  <div className={cn("space-y-6 transition-all", settings.leave_enabled !== 1 && "opacity-50 pointer-events-none")}>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Channel</label>
+                      <select 
+                        value={settings.leave_channel_id || ''}
+                        onChange={(e) => setSettings({...settings, leave_channel_id: e.target.value})}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                      >
+                        <option value="">Select a channel</option>
+                        {selectedGuild.channels.map((c: any) => (
+                          <option key={c.id} value={c.id}>#{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Message Template</label>
+                      <textarea 
+                        rows={2}
+                        value={settings.leave_message}
+                        onChange={(e) => setSettings({...settings, leave_message: e.target.value})}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        placeholder="{user} has left the server."
+                      />
+                      <p className="text-[10px] text-zinc-500 mt-2 px-1">Use {'{user}'} for mention, {'{server}'} for server name, and {'{tag}'} for user tag.</p>
+                    </div>
+                  </div>
+                </section>
+
                 {/* Moderation */}
                 <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
                   <div className="flex items-center gap-3 mb-6">
@@ -716,6 +832,21 @@ export default function App() {
                         </div>
                       </div>
                     )}
+
+                    <div className={cn("mt-6 space-y-4", settings.leveling_enabled !== 1 && "opacity-50 pointer-events-none")}>
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">XP Per Message</label>
+                        <input 
+                          type="number" 
+                          value={settings.xp_per_message || 10}
+                          onChange={(e) => setSettings({...settings, xp_per_message: parseInt(e.target.value) || 0})}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                          min="0"
+                          max="1000"
+                        />
+                        <p className="text-[10px] text-zinc-500 mt-2 px-1">XP gained per message (1 minute cooldown).</p>
+                      </div>
+                    </div>
                   </section>
 
                   <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
@@ -903,45 +1034,22 @@ export default function App() {
                   
                   <p className="text-sm text-zinc-400 mb-6">Send a customized announcement or information box to your server.</p>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                     <div className="space-y-6">
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Target Channel</label>
-                        <select 
-                          value={ceChannel}
-                          onChange={(e) => setCeChannel(e.target.value)}
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
-                        >
-                          <option value="">Select a channel</option>
-                          {selectedGuild.channels.map((c: any) => (
-                            <option key={c.id} value={c.id}>#{c.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Title</label>
-                        <input 
-                          type="text" 
-                          value={ceTitle}
-                          onChange={(e) => setCeTitle(e.target.value)}
-                          placeholder="Title of your message..." 
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Description / Message Content</label>
-                        <textarea 
-                          rows={4}
-                          value={ceDesc}
-                          onChange={(e) => setCeDesc(e.target.value)}
-                          placeholder="Write your message here..."
-                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
-                        />
-                      </div>
-
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Target Channel</label>
+                          <select 
+                            value={ceChannel}
+                            onChange={(e) => setCeChannel(e.target.value)}
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                          >
+                            <option value="">Select a channel</option>
+                            {selectedGuild.channels.map((c: any) => (
+                              <option key={c.id} value={c.id}>#{c.name}</option>
+                            ))}
+                          </select>
+                        </div>
                         <div>
                           <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Color</label>
                           <div className="flex gap-2">
@@ -960,6 +1068,52 @@ export default function App() {
                             />
                           </div>
                         </div>
+                      </div>
+
+                      {/* Author Section */}
+                      <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800 space-y-4">
+                        <div className="flex items-center gap-2 text-zinc-400">
+                          <User className="h-4 w-4" />
+                          <span className="text-xs font-bold uppercase tracking-wider">Author Info</span>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3">
+                          <input 
+                            type="text" 
+                            value={ceAuthor.name}
+                            onChange={(e) => setCeAuthor({...ceAuthor, name: e.target.value})}
+                            placeholder="Author Name" 
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-discord-blurple text-sm" 
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input 
+                              type="text" 
+                              value={ceAuthor.icon}
+                              onChange={(e) => setCeAuthor({...ceAuthor, icon: e.target.value})}
+                              placeholder="Icon URL" 
+                              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-discord-blurple text-sm" 
+                            />
+                            <input 
+                              type="text" 
+                              value={ceAuthor.url}
+                              onChange={(e) => setCeAuthor({...ceAuthor, url: e.target.value})}
+                              placeholder="Author Link URL" 
+                              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-discord-blurple text-sm" 
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Title</label>
+                          <input 
+                            type="text" 
+                            value={ceTitle}
+                            onChange={(e) => setCeTitle(e.target.value)}
+                            placeholder="Title..." 
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
+                          />
+                        </div>
                         <div>
                           <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Footer Text</label>
                           <input 
@@ -972,9 +1126,92 @@ export default function App() {
                         </div>
                       </div>
 
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Description / Message Content</label>
+                        <textarea 
+                          rows={4}
+                          value={ceDesc}
+                          onChange={(e) => setCeDesc(e.target.value)}
+                          placeholder="Write your message here..."
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        />
+                      </div>
+
+                      {/* Fields Section */}
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-sm font-medium text-zinc-400 px-1">Embed Fields</label>
+                          <button 
+                            onClick={addField}
+                            className="text-[10px] bg-discord-blurple/20 hover:bg-discord-blurple/30 text-discord-blurple px-2 py-1 rounded flex items-center gap-1 font-bold transition-all"
+                          >
+                            <Plus className="h-3 w-3" /> ADD FIELD
+                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 gap-3">
+                          {ceFields.map((field, idx) => (
+                            <div key={idx} className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 space-y-3 relative group">
+                              <button 
+                                onClick={() => removeField(idx)}
+                                className="absolute top-2 right-2 text-zinc-600 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <input 
+                                  type="text" 
+                                  value={field.name}
+                                  onChange={(e) => updateField(idx, 'name', e.target.value)}
+                                  placeholder="Field Name" 
+                                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-discord-blurple text-xs font-bold" 
+                                />
+                                <div className="flex items-center gap-3">
+                                  <label className="relative inline-flex items-center cursor-pointer">
+                                    <input 
+                                      type="checkbox" 
+                                      checked={field.inline}
+                                      onChange={(e) => updateField(idx, 'inline', e.target.checked)}
+                                      className="sr-only peer" 
+                                    />
+                                    <div className="w-7 h-4 bg-zinc-800 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-discord-blurple"></div>
+                                  </label>
+                                  <span className="text-[10px] text-zinc-500">Inline</span>
+                                </div>
+                              </div>
+                              <textarea 
+                                rows={1}
+                                value={field.value}
+                                onChange={(e) => updateField(idx, 'value', e.target.value)}
+                                placeholder="Field Value" 
+                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-discord-blurple text-xs" 
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Image URL</label>
+                        <div className="flex items-center gap-3 py-2 px-1">
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                              type="checkbox" 
+                              checked={ceTimestamp}
+                              onChange={(e) => setCeTimestamp(e.target.checked)}
+                              className="sr-only peer" 
+                            />
+                            <div className="w-11 h-6 bg-zinc-800 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-discord-blurple"></div>
+                          </label>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-zinc-400">Include Timestamp</span>
+                            <span className="text-[10px] text-zinc-600 font-mono flex items-center gap-1"><Clock className="h-2.5 w-2.5" /> Show current time</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="block text-sm font-medium text-zinc-400 px-1">Image URL</label>
                           <input 
                             type="text" 
                             value={ceImage}
@@ -983,8 +1220,8 @@ export default function App() {
                             className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
                           />
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Thumbnail URL</label>
+                        <div className="space-y-1.5">
+                          <label className="block text-sm font-medium text-zinc-400 px-1">Thumbnail URL</label>
                           <input 
                             type="text" 
                             value={ceThumb}
@@ -997,7 +1234,7 @@ export default function App() {
 
                       <button 
                         onClick={sendCustomEmbed}
-                        disabled={saving || !ceChannel || (!ceTitle && !ceDesc)}
+                        disabled={saving || !ceChannel || (!ceTitle && !ceDesc && ceFields.length === 0)}
                         className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2"
                       >
                         {saving ? (
@@ -1007,47 +1244,75 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* Preview */}
+                    {/* Preview Area */}
                     <div className="flex flex-col">
                       <label className="block text-sm font-medium text-zinc-500 mb-3 px-1 uppercase tracking-widest text-[10px]">Live Preview</label>
-                      <div className="flex-1 bg-zinc-950 rounded-2xl border border-zinc-800 p-4 min-h-[300px]">
-                        <div className="flex gap-3">
+                      <div className="flex-1 bg-zinc-950 rounded-2xl border border-zinc-800 p-6 min-h-[400px]">
+                        <div className="flex gap-4">
                           <div className="h-10 w-10 rounded-full bg-discord-blurple flex items-center justify-center flex-shrink-0">
                             <Bot className="h-6 w-6 text-white" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-2">
-                              <span className="font-bold text-sm text-[#5865F2] hover:underline cursor-pointer">HOLY RAVAGE</span>
-                              <span className="bg-[#5865F2] text-[10px] text-white px-1 rounded flex items-center gap-0.5"><CheckCircle2 className="h-2 w-2" /> BOT</span>
+                              <span className="font-bold text-sm text-[#5865F2] hover:underline cursor-pointer">{selectedGuild.guildData.name} Bot</span>
+                              <span className="bg-[#5865F2] text-[10px] text-white px-1.5 py-0.5 rounded flex items-center gap-0.5 font-bold"><CheckCircle2 className="h-2 w-2" /> BOT</span>
                               <span className="text-zinc-500 text-[10px]">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                             
-                            {/* The actual Embed UI */}
+                            {/* The actual Embed UI in Preview */}
                             <div 
-                              className="border-l-4 rounded-md bg-[#2B2D31] p-3 max-w-[432px]"
+                              className="border-l-4 rounded-md bg-[#2B2D31] p-4 max-w-[432px] overflow-hidden"
                               style={{ borderColor: ceColor }}
                             >
+                              {/* Author Preview */}
+                              {ceAuthor.name && (
+                                <div className="flex items-center gap-2 mb-2">
+                                  {ceAuthor.icon && <img src={ceAuthor.icon} className="h-6 w-6 rounded-full object-cover" alt="" />}
+                                  <span className={cn("text-xs font-bold text-white", ceAuthor.url && "text-discord-blurple hover:underline cursor-pointer")}>
+                                    {ceAuthor.name}
+                                  </span>
+                                </div>
+                              )}
+
                               <div className="flex justify-between gap-4">
                                 <div className="flex-1 min-w-0">
                                   {ceTitle && <h4 className="font-bold text-zinc-100 mb-1 break-words">{ceTitle}</h4>}
                                   {ceDesc && <p className="text-sm text-zinc-300 break-words whitespace-pre-wrap">{ceDesc}</p>}
                                 </div>
                                 {ceThumb && (
-                                  <div className="h-16 w-16 rounded overflow-hidden flex-shrink-0">
+                                  <div className="h-20 w-20 rounded overflow-hidden flex-shrink-0">
                                     <img src={ceThumb} alt="" className="w-full h-full object-cover" />
                                   </div>
                                 )}
                               </div>
+
+                              {/* Fields Preview */}
+                              {ceFields.length > 0 && (
+                                <div className="mt-4 grid grid-cols-3 gap-x-2 gap-y-4">
+                                  {ceFields.map((f, idx) => (
+                                    <div key={idx} className={cn("min-w-0", f.inline ? "col-span-1" : "col-span-3")}>
+                                      <div className="text-xs font-bold text-white mb-1 break-words">{f.name || 'Field Title'}</div>
+                                      <div className="text-xs text-zinc-300 break-words whitespace-pre-wrap">{f.value || 'Field Value'}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
                               {ceImage && (
                                 <div className="mt-4 rounded-md overflow-hidden">
-                                  <img src={ceImage} alt="" className="w-full h-auto" />
+                                  <img src={ceImage} alt="" className="w-full h-auto max-h-80 object-cover" />
                                 </div>
                               )}
-                              {ceFooter && (
-                                <div className="mt-3 text-[10px] text-zinc-400 font-medium">
-                                  {ceFooter}
-                                </div>
-                              )}
+
+                              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                                {ceFooter && <div className="text-[10px] text-zinc-400 font-medium">{ceFooter}</div>}
+                                {ceTimestamp && (
+                                  <>
+                                    {ceFooter && <span className="text-zinc-600 text-[10px]">•</span>}
+                                    <div className="text-[10px] text-zinc-400 font-medium">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1055,8 +1320,97 @@ export default function App() {
                     </div>
                   </div>
                 </section>
-              </div>
-            </motion.div>
+
+                    {/* Custom Commands */}
+                    <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                      <div className="flex items-center gap-3 mb-6">
+                        <MessageSquare className="h-5 w-5 text-zinc-400" />
+                        <h3 className="text-xl font-bold">Custom Bot Commands</h3>
+                      </div>
+                      
+                      <p className="text-sm text-zinc-400 mb-6">Create your own bot commands with custom responses.</p>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-6">
+                          <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-4">
+                            <h4 className="text-sm font-bold">New Command</h4>
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-zinc-500 mb-1 px-1">Command Name</label>
+                              <div className="flex items-center gap-2">
+                                <span className="text-zinc-500 font-mono">{settings.prefix}</span>
+                                <input 
+                                  type="text" 
+                                  value={newCommand.name}
+                                  onChange={(e) => setNewCommand({...newCommand, name: e.target.value})}
+                                  placeholder="hello" 
+                                  className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-discord-blurple" 
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-zinc-500 mb-1 px-1">Response</label>
+                              <textarea 
+                                rows={3}
+                                value={newCommand.response}
+                                onChange={(e) => setNewCommand({...newCommand, response: e.target.value})}
+                                placeholder="What should the bot say?" 
+                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-discord-blurple" 
+                              />
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                  type="checkbox" 
+                                  checked={newCommand.is_embed}
+                                  onChange={(e) => setNewCommand({...newCommand, is_embed: e.target.checked})}
+                                  className="sr-only peer" 
+                                />
+                                <div className="w-9 h-5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-discord-blurple"></div>
+                              </label>
+                              <span className="text-xs text-zinc-400">Send as Embed</span>
+                            </div>
+                            <button 
+                              onClick={addCustomCommand}
+                              disabled={saving || !newCommand.name || !newCommand.response}
+                              className="w-full py-2.5 bg-discord-blurple hover:bg-indigo-600 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all"
+                            >
+                              Add Command
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <label className="block text-[10px] uppercase font-bold text-zinc-500 mb-1 px-1">Existing Commands</label>
+                          <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                            {customCommands.length > 0 ? (
+                              customCommands.map((cmd) => (
+                                <div key={cmd.id} className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl flex items-center justify-between group">
+                                  <div>
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-discord-blurple font-bold text-sm">{settings.prefix}{cmd.command_name}</span>
+                                      {cmd.is_embed === 1 && <span className="text-[8px] bg-zinc-800 px-1.5 py-0.5 rounded text-zinc-400 uppercase">Embed</span>}
+                                    </div>
+                                    <p className="text-xs text-zinc-500 line-clamp-1">{cmd.response}</p>
+                                  </div>
+                                  <button 
+                                    onClick={() => deleteCustomCommand(cmd.id)}
+                                    className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-center py-8 bg-zinc-950 border border-zinc-800 border-dashed rounded-xl text-zinc-600 text-xs italic">
+                                No custom commands added yet.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                </motion.div>
           )}
         </AnimatePresence>
       </main>

@@ -17,7 +17,8 @@ import {
   Trophy,
   ShieldAlert,
   RefreshCw,
-  Activity
+  Activity,
+  Send
 } from 'lucide-react';
 import axios from 'axios';
 import { cn } from './lib/utils';
@@ -50,6 +51,15 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState<{ user_id: string, xp: number, level: number }[]>([]);
   const [botStatus, setBotStatus] = useState<any>(null);
   const [statusLoading, setStatusLoading] = useState(false);
+
+  // Custom Embed States
+  const [ceChannel, setCeChannel] = useState("");
+  const [ceTitle, setCeTitle] = useState("");
+  const [ceDesc, setCeDesc] = useState("");
+  const [ceColor, setCeColor] = useState("#5865F2");
+  const [ceImage, setCeImage] = useState("");
+  const [ceThumb, setCeThumb] = useState("");
+  const [ceFooter, setCeFooter] = useState("");
 
   useEffect(() => {
     fetchUser();
@@ -204,6 +214,36 @@ export default function App() {
       console.error('Save settings error:', err);
       const errorMsg = err.response?.data?.error || 'Failed to save settings. Please try again.';
       showNotification(errorMsg, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendCustomEmbed = async () => {
+    if (!selectedGuild || !ceChannel || (!ceTitle && !ceDesc)) {
+       showNotification('Please select a channel and provide a title or description', 'error');
+       return;
+    }
+    setSaving(true);
+    try {
+      await axios.post(`/api/guilds/${selectedGuild.guildData.id}/embed`, {
+        channel_id: ceChannel,
+        title: ceTitle,
+        description: ceDesc,
+        color: ceColor,
+        image: ceImage,
+        thumbnail: ceThumb,
+        footer: ceFooter
+      });
+      showNotification('Embed sent successfully!');
+      setCeTitle("");
+      setCeDesc("");
+      setCeImage("");
+      setCeThumb("");
+      setCeFooter("");
+    } catch (err: any) {
+      console.error('Send embed error:', err);
+      showNotification(err.response?.data?.error || 'Failed to send embed', 'error');
     } finally {
       setSaving(false);
     }
@@ -851,6 +891,168 @@ export default function App() {
                         </>
                       ) : 'Create Dropdown Message'}
                     </button>
+                  </div>
+                </section>
+
+                {/* Custom Embed Builder */}
+                <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                  <div className="flex items-center gap-3 mb-6">
+                    <MessageSquare className="h-5 w-5 text-zinc-400" />
+                    <h3 className="text-xl font-bold">Custom Embed Builder</h3>
+                  </div>
+                  
+                  <p className="text-sm text-zinc-400 mb-6">Send a customized announcement or information box to your server.</p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Target Channel</label>
+                        <select 
+                          value={ceChannel}
+                          onChange={(e) => setCeChannel(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        >
+                          <option value="">Select a channel</option>
+                          {selectedGuild.channels.map((c: any) => (
+                            <option key={c.id} value={c.id}>#{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Title</label>
+                        <input 
+                          type="text" 
+                          value={ceTitle}
+                          onChange={(e) => setCeTitle(e.target.value)}
+                          placeholder="Title of your message..." 
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Description / Message Content</label>
+                        <textarea 
+                          rows={4}
+                          value={ceDesc}
+                          onChange={(e) => setCeDesc(e.target.value)}
+                          placeholder="Write your message here..."
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Embed Color</label>
+                          <div className="flex gap-2">
+                            <input 
+                              type="color" 
+                              value={ceColor}
+                              onChange={(e) => setCeColor(e.target.value)}
+                              className="h-10 w-10 bg-zinc-950 border border-zinc-800 rounded-lg p-1"
+                            />
+                            <input 
+                              type="text" 
+                              value={ceColor}
+                              onChange={(e) => setCeColor(e.target.value)}
+                              placeholder="#5865F2"
+                              className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50 text-xs"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Footer Text</label>
+                          <input 
+                            type="text" 
+                            value={ceFooter}
+                            onChange={(e) => setCeFooter(e.target.value)}
+                            placeholder="Optional footer..." 
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Image URL</label>
+                          <input 
+                            type="text" 
+                            value={ceImage}
+                            onChange={(e) => setCeImage(e.target.value)}
+                            placeholder="Large image bottom..." 
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-zinc-400 mb-1.5 px-1">Thumbnail URL</label>
+                          <input 
+                            type="text" 
+                            value={ceThumb}
+                            onChange={(e) => setCeThumb(e.target.value)}
+                            placeholder="Small image top right..." 
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-discord-blurple/50" 
+                          />
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={sendCustomEmbed}
+                        disabled={saving || !ceChannel || (!ceTitle && !ceDesc)}
+                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2"
+                      >
+                        {saving ? (
+                          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }} className="h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+                        ) : <Send className="h-4 w-4" />}
+                        Send Custom Embed
+                      </button>
+                    </div>
+
+                    {/* Preview */}
+                    <div className="flex flex-col">
+                      <label className="block text-sm font-medium text-zinc-500 mb-3 px-1 uppercase tracking-widest text-[10px]">Live Preview</label>
+                      <div className="flex-1 bg-zinc-950 rounded-2xl border border-zinc-800 p-4 min-h-[300px]">
+                        <div className="flex gap-3">
+                          <div className="h-10 w-10 rounded-full bg-discord-blurple flex items-center justify-center flex-shrink-0">
+                            <Bot className="h-6 w-6 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-bold text-sm text-[#5865F2] hover:underline cursor-pointer">HOLY RAVAGE</span>
+                              <span className="bg-[#5865F2] text-[10px] text-white px-1 rounded flex items-center gap-0.5"><CheckCircle2 className="h-2 w-2" /> BOT</span>
+                              <span className="text-zinc-500 text-[10px]">Today at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                            
+                            {/* The actual Embed UI */}
+                            <div 
+                              className="border-l-4 rounded-md bg-[#2B2D31] p-3 max-w-[432px]"
+                              style={{ borderColor: ceColor }}
+                            >
+                              <div className="flex justify-between gap-4">
+                                <div className="flex-1 min-w-0">
+                                  {ceTitle && <h4 className="font-bold text-zinc-100 mb-1 break-words">{ceTitle}</h4>}
+                                  {ceDesc && <p className="text-sm text-zinc-300 break-words whitespace-pre-wrap">{ceDesc}</p>}
+                                </div>
+                                {ceThumb && (
+                                  <div className="h-16 w-16 rounded overflow-hidden flex-shrink-0">
+                                    <img src={ceThumb} alt="" className="w-full h-full object-cover" />
+                                  </div>
+                                )}
+                              </div>
+                              {ceImage && (
+                                <div className="mt-4 rounded-md overflow-hidden">
+                                  <img src={ceImage} alt="" className="w-full h-auto" />
+                                </div>
+                              )}
+                              {ceFooter && (
+                                <div className="mt-3 text-[10px] text-zinc-400 font-medium">
+                                  {ceFooter}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </section>
               </div>

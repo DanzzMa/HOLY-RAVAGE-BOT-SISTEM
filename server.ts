@@ -234,6 +234,35 @@ async function bootstrap() {
     res.json(leaderboard);
   });
 
+  app.post('/api/guilds/:id/embed', async (req, res) => {
+    const { id } = req.params;
+    const { channel_id, title, description, color, image, thumbnail, footer } = req.body;
+
+    const guild = client.guilds.cache.get(id);
+    if (!guild) return res.status(404).json({ error: 'Bot not in guild' });
+
+    const channel: any = guild.channels.cache.get(channel_id);
+    if (!channel) return res.status(404).json({ error: 'Channel not found' });
+
+    try {
+      const embed: any = {
+        title,
+        description,
+        color: parseInt(color.replace('#', ''), 16) || 0x5865F2,
+      };
+
+      if (image) embed.image = { url: image };
+      if (thumbnail) embed.thumbnail = { url: thumbnail };
+      if (footer) embed.footer = { text: footer };
+
+      await channel.send({ embeds: [embed] });
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Failed to send embed' });
+    }
+  });
+
   app.get('/api/guilds/:id/dropdowns', async (req, res) => {
     const { id } = req.params;
     const dropdowns = db.prepare('SELECT * FROM dropdown_roles WHERE guild_id = ?').all(id);

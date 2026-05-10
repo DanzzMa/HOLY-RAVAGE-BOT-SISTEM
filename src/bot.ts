@@ -317,14 +317,28 @@ client.on(Events.MessageCreate, async (message) => {
       }
 
       const song = {
-        title: songInfo.video_details?.title || songInfo.title || 'Unknown Title',
-        url: songInfo.video_details?.url || songInfo.url,
-        duration: songInfo.video_details?.durationRaw || songInfo.durationRaw || 'Unknown',
-        thumbnail: (songInfo.video_details?.thumbnails?.[0]?.url || songInfo.thumbnails?.[0]?.url) || ''
+        title: '',
+        url: '',
+        duration: '',
+        thumbnail: ''
       };
 
-      if (!song.url) {
-        return message.reply('Gagal mendapatkan URL lagu. Coba lagu lain atau link lain.');
+      if (songInfo.video_details) {
+        song.title = songInfo.video_details.title || 'Unknown Title';
+        song.url = songInfo.video_details.url;
+        song.duration = songInfo.video_details.durationRaw || 'Unknown';
+        song.thumbnail = songInfo.video_details.thumbnails?.[0]?.url || '';
+      } else {
+        song.title = songInfo.title || 'Unknown Title';
+        song.url = songInfo.url;
+        song.duration = songInfo.durationRaw || 'Unknown';
+        song.thumbnail = songInfo.thumbnails?.[0]?.url || '';
+      }
+
+      console.log(`[MUSIC] Prepared song: ${song.title} (${song.url})`);
+
+      if (!song.url || typeof song.url !== 'string') {
+        return message.reply('Gagal mendapatkan URL lagu yang valid. Coba lagu lain.');
       }
 
       if (!queue) {
@@ -421,9 +435,13 @@ async function playSong(guildId: string, song: any) {
   const queue = queues.get(guildId);
   if (!queue) return;
 
-  if (!song || !song.url) {
-    console.error('Invalid song or URL in playSong:', song);
-    queue.channel.send('⚠️ Terjadi masalah saat mencoba memutar lagu (URL tidak ditemukan).');
+  console.log(`[MUSIC DEBUG] playSong current song:`, JSON.stringify(song));
+
+  if (!song || !song.url || typeof song.url !== 'string') {
+    console.error('[MUSIC ERROR] Invalid song or URL in playSong:', song);
+    queue.channel.send('⚠️ Terjadi masalah: Data lagu tidak valid.');
+    
+    // Skip to next if possible
     queue.songs.shift();
     if (queue.songs.length > 0) {
       playSong(guildId, queue.songs[0]);
@@ -432,7 +450,19 @@ async function playSong(guildId: string, song: any) {
   }
 
   try {
-    const stream = await play.stream(song.url);
+    console.log(`[MUSIC DEBUG] Calling play.stream for: ${song.url}`);
+    
+    // Validate first
+    const validation = await play.validate(song.url);
+    console.log(`[MUSIC DEBUG] URL Validation result: ${validation}`);
+
+    if (!validation) {
+       throw new Error('URL cannot be validated by play-dl');
+    }
+
+    const stream = await play.stream(song.url, {
+      discordPlayerCompatibility: true
+    });
     const resource = createAudioResource(stream.stream, {
       inputType: stream.type
     });

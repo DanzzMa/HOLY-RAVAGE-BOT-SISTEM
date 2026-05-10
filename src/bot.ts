@@ -290,22 +290,26 @@ client.on(Events.MessageCreate, async (message) => {
     let queue = queues.get(message.guild.id);
 
     try {
-      let songInfo;
-      if (query.includes('youtube.com/') || query.includes('youtu.be/')) {
-        songInfo = await play.video_info(query);
+      let songInfo: any;
+      const yt_check = play.yt_validate(query);
+
+      if (yt_check === 'video' || yt_check === 'playlist') {
+        try {
+          songInfo = await play.video_info(query);
+        } catch (e) {
+          return message.reply('Gagal mendapatkan info video YouTube. Pastikan link benar dan video tidak di-private.');
+        }
       } else if (query.includes('spotify.com/')) {
         try {
-          const spData = await play.spotify(query);
-          const spotifyData = spData as any;
-          if (spotifyData.type === 'track') {
-            const searched = await play.search(`${spotifyData.name} ${spotifyData.artists?.[0]?.name || ''}`, { limit: 1 });
-            if (searched.length === 0) return message.reply('Lagu tidak ditemukan di YouTube!');
+          const spData = await play.spotify(query) as any;
+          if (spData.type === 'track') {
+            const searched = await play.search(`${spData.name} ${spData.artists?.[0]?.name || ''}`, { limit: 1 });
+            if (searched.length === 0) return message.reply('Lagu Spotify tidak ditemukan di YouTube!');
             songInfo = await play.video_info(searched[0].url);
           } else {
              return message.reply('Maaf, saat ini hanya mendukung track Spotify tunggal.');
           }
         } catch (e) {
-          // Fallback to searching if Spotify link fails directly
           const searched = await play.search(query, { limit: 1 });
           if (searched.length === 0) return message.reply('Lagu tidak ditemukan!');
           songInfo = await play.video_info(searched[0].url);
@@ -316,30 +320,27 @@ client.on(Events.MessageCreate, async (message) => {
         songInfo = await play.video_info(searched[0].url);
       }
 
+      if (!songInfo) {
+        return message.reply('Gagal menemukan lagu.');
+      }
+
+      // Defensive extraction
+      const title = songInfo.video_details?.title || songInfo.title || 'Unknown Title';
+      const url = songInfo.video_details?.url || songInfo.url;
+      const duration = songInfo.video_details?.durationRaw || songInfo.durationRaw || 'Unknown';
+      const thumbnail = (songInfo.video_details?.thumbnails?.[0]?.url || songInfo.thumbnails?.[0]?.url) || '';
+
+      if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+        console.error('[MUSIC ERROR] Extracted invalid URL:', url);
+        return message.reply('Gagal mendapatkan URL lagu yang valid. Coba lagu lain atau link lain.');
+      }
+
       const song = {
-        title: '',
-        url: '',
-        duration: '',
-        thumbnail: ''
+        title: String(title),
+        url: String(url),
+        duration: String(duration),
+        thumbnail: String(thumbnail)
       };
-
-      if (songInfo.video_details) {
-        song.title = songInfo.video_details.title || 'Unknown Title';
-        song.url = songInfo.video_details.url;
-        song.duration = songInfo.video_details.durationRaw || 'Unknown';
-        song.thumbnail = songInfo.video_details.thumbnails?.[0]?.url || '';
-      } else {
-        song.title = songInfo.title || 'Unknown Title';
-        song.url = songInfo.url;
-        song.duration = songInfo.durationRaw || 'Unknown';
-        song.thumbnail = songInfo.thumbnails?.[0]?.url || '';
-      }
-
-      console.log(`[MUSIC] Prepared song: ${song.title} (${song.url})`);
-
-      if (!song.url || typeof song.url !== 'string') {
-        return message.reply('Gagal mendapatkan URL lagu yang valid. Coba lagu lain.');
-      }
 
       if (!queue) {
         const player = createAudioPlayer();
@@ -361,14 +362,17 @@ client.on(Events.MessageCreate, async (message) => {
         connection.subscribe(player);
 
         player.on(AudioPlayerStatus.Idle, () => {
-          queue.songs.shift();
-          if (queue.songs.length > 0) {
-            playSong(message.guild.id, queue.songs[0]);
+          const currentQueue = queues.get(message.guild.id);
+          if (!currentQueue) return;
+
+          currentQueue.songs.shift();
+          if (currentQueue.songs.length > 0) {
+            playSong(message.guild.id, currentQueue.songs[0]);
           } else {
             setTimeout(() => {
-              const currentQueue = queues.get(message.guild.id);
-              if (currentQueue && currentQueue.songs.length === 0) {
-                currentQueue.connection.destroy();
+              const q = queues.get(message.guild.id);
+              if (q && q.songs.length === 0) {
+                q.connection.destroy();
                 queues.delete(message.guild.id);
               }
             }, 30000);
@@ -376,8 +380,9 @@ client.on(Events.MessageCreate, async (message) => {
         });
 
         player.on('error', error => {
-          console.error(error);
-          queue.channel.send('Oops, ada error pas mau mutar lagu. Coba lagi ya!');
+          console.error('[MUSIC PLAYER ERROR]', error);
+          queue?.channel.send('Oops, ada error pas mau mutar lagu. Lewati ke lagu berikutnya...');
+          queue?.player.stop();
         });
 
         playSong(message.guild.id, song);
@@ -394,8 +399,8 @@ client.on(Events.MessageCreate, async (message) => {
       }
 
     } catch (err) {
-      console.error(err);
-      message.reply('Terjadi kesalahan saat mencoba memutar lagu.');
+      console.error('[PLAY COMMAND ERROR]', err);
+      message.reply('Terjadi kesalahan saat memproses permintaan musik.');
     }
   }
 
@@ -435,13 +440,12 @@ async function playSong(guildId: string, song: any) {
   const queue = queues.get(guildId);
   if (!queue) return;
 
-  console.log(`[MUSIC DEBUG] playSong current song:`, JSON.stringify(song));
+  console.log(`[MUSIC DEBUG] playSong starting: ${song.title} | URL: ${song.url}`);
 
-  if (!song || !song.url || typeof song.url !== 'string') {
-    console.error('[MUSIC ERROR] Invalid song or URL in playSong:', song);
-    queue.channel.send('⚠️ Terjadi masalah: Data lagu tidak valid.');
+  if (!song || !song.url || typeof song.url !== 'string' || !song.url.startsWith('http')) {
+    console.error('[MUSIC ERROR] Invalid song data in playSong:', song);
+    queue.channel.send(`⚠️ Terjadi masalah: Data lagu "${song?.title || 'Unknown'}" tidak memiliki URL valid. Lewati...`);
     
-    // Skip to next if possible
     queue.songs.shift();
     if (queue.songs.length > 0) {
       playSong(guildId, queue.songs[0]);
@@ -450,27 +454,23 @@ async function playSong(guildId: string, song: any) {
   }
 
   try {
-    console.log(`[MUSIC DEBUG] Calling play.stream for: ${song.url}`);
-    
-    // Validate first
-    const validation = await play.validate(song.url);
-    console.log(`[MUSIC DEBUG] URL Validation result: ${validation}`);
-
-    if (!validation) {
-       throw new Error('URL cannot be validated by play-dl');
-    }
-
+    console.log(`[MUSIC DEBUG] Using play.stream for: ${song.url}`);
     const stream = await play.stream(song.url, {
       discordPlayerCompatibility: true
     });
+
     const resource = createAudioResource(stream.stream, {
       inputType: stream.type
     });
 
     queue.player.play(resource);
+    console.log(`[MUSIC DEBUG] Playback initiated for: ${song.title}`);
   } catch (err) {
-    console.error(err);
-    queue.channel.send('Gagal memutar stream musik.');
+    console.error('[MUSIC STREAM ERROR]', err);
+    queue.channel.send(`❌ Gagal memutar lagu: **${song.title}**. Skip otomatis...`);
+    
+    // Automatically skip on stream error
+    queue.player.stop();
   }
 }
 

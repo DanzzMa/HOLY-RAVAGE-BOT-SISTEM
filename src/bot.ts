@@ -317,11 +317,15 @@ client.on(Events.MessageCreate, async (message) => {
       }
 
       const song = {
-        title: songInfo.video_details.title,
-        url: songInfo.video_details.url,
-        duration: songInfo.video_details.durationRaw,
-        thumbnail: songInfo.video_details.thumbnails[0].url
+        title: songInfo.video_details?.title || songInfo.title || 'Unknown Title',
+        url: songInfo.video_details?.url || songInfo.url,
+        duration: songInfo.video_details?.durationRaw || songInfo.durationRaw || 'Unknown',
+        thumbnail: (songInfo.video_details?.thumbnails?.[0]?.url || songInfo.thumbnails?.[0]?.url) || ''
       };
+
+      if (!song.url) {
+        return message.reply('Gagal mendapatkan URL lagu. Coba lagu lain atau link lain.');
+      }
 
       if (!queue) {
         const player = createAudioPlayer();
@@ -416,6 +420,16 @@ client.on(Events.MessageCreate, async (message) => {
 async function playSong(guildId: string, song: any) {
   const queue = queues.get(guildId);
   if (!queue) return;
+
+  if (!song || !song.url) {
+    console.error('Invalid song or URL in playSong:', song);
+    queue.channel.send('⚠️ Terjadi masalah saat mencoba memutar lagu (URL tidak ditemukan).');
+    queue.songs.shift();
+    if (queue.songs.length > 0) {
+      playSong(guildId, queue.songs[0]);
+    }
+    return;
+  }
 
   try {
     const stream = await play.stream(song.url);

@@ -1459,6 +1459,50 @@ export default function App() {
                       </div>
                     </section>
 
+                    {/* Music Features */}
+                    <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
+                      <div className="flex items-center gap-3 mb-6">
+                        <Activity className="h-5 w-5 text-zinc-400" />
+                        <h3 className="text-xl font-bold">Music Features</h3>
+                      </div>
+                      
+                      <p className="text-sm text-zinc-400 mb-6">Nikmati musik bersama teman di Voice Channel tanpa perlu API Key.</p>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold font-mono text-discord-blurple">{(settings?.prefix || '!')}play [judul/url]</span>
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Play</span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400">Putar lagu dari YouTube atau Spotify.</p>
+                        </div>
+
+                        <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold font-mono text-discord-blurple">{(settings?.prefix || '!')}skip</span>
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Skip</span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400">Lewati lagu saat ini.</p>
+                        </div>
+
+                        <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold font-mono text-discord-blurple">{(settings?.prefix || '!')}stop</span>
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Stop</span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400">Hentikan musik dan bot keluar.</p>
+                        </div>
+
+                        <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold font-mono text-discord-blurple">{(settings?.prefix || '!')}queue</span>
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Queue</span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400">Lihat daftar lagu berikutnya.</p>
+                        </div>
+                      </div>
+                    </section>
+
                     {/* Message Console */}
                     <section className="p-8 bg-zinc-900 rounded-3xl border border-zinc-800">
                       <div className="flex items-center justify-between mb-6">

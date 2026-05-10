@@ -7,8 +7,26 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
+
+import { 
+  joinVoiceChannel, 
+  createAudioPlayer, 
+  createAudioResource, 
+  AudioPlayerStatus, 
+  VoiceConnectionStatus,
+  getVoiceConnection
+} from '@discordjs/voice';
+import play from 'play-dl';
+
+const queues = new Map<string, {
+  player: any,
+  songs: any[],
+  connection: any,
+  channel: any
+}>();
 
 client.on(Events.ClientReady, () => {
   console.log(`Bot logged in as ${client.user?.tag}`);
@@ -261,7 +279,156 @@ client.on(Events.MessageCreate, async (message) => {
     // Basic setup logic could go here or refer to the dashboard
     message.reply(`Visit the dashboard to configure me: ${process.env.APP_URL}`);
   }
+
+  if (command === 'play' || command === 'p') {
+    const voiceChannel = message.member?.voice.channel;
+    if (!voiceChannel) return message.reply('Kamu harus berada di Voice Channel!');
+    
+    const query = args.join(' ');
+    if (!query) return message.reply('Mau dengerin lagu apa? Kasih judul atau link dong!');
+
+    let queue = queues.get(message.guild.id);
+
+    try {
+      let songInfo;
+      if (query.includes('youtube.com/') || query.includes('youtu.be/')) {
+        songInfo = await play.video_info(query);
+      } else if (query.includes('spotify.com/')) {
+        try {
+          const spData = await play.spotify(query);
+          const spotifyData = spData as any;
+          if (spotifyData.type === 'track') {
+            const searched = await play.search(`${spotifyData.name} ${spotifyData.artists?.[0]?.name || ''}`, { limit: 1 });
+            if (searched.length === 0) return message.reply('Lagu tidak ditemukan di YouTube!');
+            songInfo = await play.video_info(searched[0].url);
+          } else {
+             return message.reply('Maaf, saat ini hanya mendukung track Spotify tunggal.');
+          }
+        } catch (e) {
+          // Fallback to searching if Spotify link fails directly
+          const searched = await play.search(query, { limit: 1 });
+          if (searched.length === 0) return message.reply('Lagu tidak ditemukan!');
+          songInfo = await play.video_info(searched[0].url);
+        }
+      } else {
+        const searched = await play.search(query, { limit: 1 });
+        if (searched.length === 0) return message.reply('Lagu tidak ditemukan!');
+        songInfo = await play.video_info(searched[0].url);
+      }
+
+      const song = {
+        title: songInfo.video_details.title,
+        url: songInfo.video_details.url,
+        duration: songInfo.video_details.durationRaw,
+        thumbnail: songInfo.video_details.thumbnails[0].url
+      };
+
+      if (!queue) {
+        const player = createAudioPlayer();
+        const connection = joinVoiceChannel({
+          channelId: voiceChannel.id,
+          guildId: message.guild.id,
+          adapterCreator: message.guild.voiceAdapterCreator as any,
+        });
+
+        queue = {
+          player,
+          songs: [song],
+          connection,
+          channel: message.channel
+        };
+
+        queues.set(message.guild.id, queue);
+
+        connection.subscribe(player);
+
+        player.on(AudioPlayerStatus.Idle, () => {
+          queue.songs.shift();
+          if (queue.songs.length > 0) {
+            playSong(message.guild.id, queue.songs[0]);
+          } else {
+            setTimeout(() => {
+              const currentQueue = queues.get(message.guild.id);
+              if (currentQueue && currentQueue.songs.length === 0) {
+                currentQueue.connection.destroy();
+                queues.delete(message.guild.id);
+              }
+            }, 30000);
+          }
+        });
+
+        player.on('error', error => {
+          console.error(error);
+          queue.channel.send('Oops, ada error pas mau mutar lagu. Coba lagi ya!');
+        });
+
+        playSong(message.guild.id, song);
+        message.reply(`🎶 Memulai musik: **${song.title}**`);
+      } else {
+        queue.songs.push(song);
+        const embed = new EmbedBuilder()
+          .setTitle('Antrean Ditambahkan')
+          .setDescription(`**${song.title}** berhasil masuk antrean!`)
+          .setThumbnail(song.thumbnail)
+          .setColor('#5865F2')
+          .setFooter({ text: `Durasi: ${song.duration}` });
+        return message.reply({ embeds: [embed] });
+      }
+
+    } catch (err) {
+      console.error(err);
+      message.reply('Terjadi kesalahan saat mencoba memutar lagu.');
+    }
+  }
+
+  if (command === 'skip') {
+    const queue = queues.get(message.guild.id);
+    if (!queue) return message.reply('Lagi gak ada lagu yang diputar nih.');
+    queue.player.stop();
+    message.reply('⏭️ Lagu diskip!');
+  }
+
+  if (command === 'stop' || command === 'leave') {
+    const queue = queues.get(message.guild.id);
+    if (!queue) return message.reply('Gak ada musik buat dihentikan.');
+    queue.songs = [];
+    queue.player.stop();
+    queue.connection.destroy();
+    queues.delete(message.guild.id);
+    message.reply('🛑 Musik berhenti dan bot keluar dari voice channel.');
+  }
+
+  if (command === 'queue' || command === 'q') {
+    const queue = queues.get(message.guild.id);
+    if (!queue) return message.reply('Antrean kosong.');
+    
+    const list = queue.songs.slice(0, 10).map((s, i) => `${i + 1}. **${s.title}** (${s.duration})`).join('\n');
+    const embed = new EmbedBuilder()
+      .setTitle('📜 Antrean Musik')
+      .setDescription(list || 'Tidak ada lagu di antrean.')
+      .setColor('#5865F2')
+      .setFooter({ text: `Total: ${queue.songs.length} lagu` });
+    
+    message.reply({ embeds: [embed] });
+  }
 });
+
+async function playSong(guildId: string, song: any) {
+  const queue = queues.get(guildId);
+  if (!queue) return;
+
+  try {
+    const stream = await play.stream(song.url);
+    const resource = createAudioResource(stream.stream, {
+      inputType: stream.type
+    });
+
+    queue.player.play(resource);
+  } catch (err) {
+    console.error(err);
+    queue.channel.send('Gagal memutar stream musik.');
+  }
+}
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isStringSelectMenu()) return;
